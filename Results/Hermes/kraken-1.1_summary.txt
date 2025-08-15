@@ -1,0 +1,10 @@
+Engine: Hermes
+Bench folder: kraken-1.1/
+Timestamp: 20250813-193303
+
+CSV: /home/anirudh/Desktop/CS492/benchmarks/Results/Hermes/kraken-1.1_results.csv
+
+Total wall time (s): 5.570000
+Total user time (s): 5.090000
+Total sys time (s): 0.410000
+Total mem change (KB): 0

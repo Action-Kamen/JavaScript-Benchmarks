@@ -1,0 +1,10 @@
+Engine: JerryScript
+Command: ./engines/jerryscript/build/bin/jerry
+Bench folder: sunspider-1.0/
+
+CSV: /home/anirudh/Desktop/CS492/benchmarks/Results/JerryScript/sunspider-1.0_results.csv
+
+Total wall time (s): 0.800000
+Total user time (s): 0.740000
+Total sys time (s): 0.000000
+Peak memory usage (KB): 3584
