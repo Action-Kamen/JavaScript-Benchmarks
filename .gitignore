@@ -1,2 +1,10 @@
 quickjs
 build
+*.csv
+*.json
+*.log
+*.out
+*.png
+*.txt
+*.tmp
+*.bak
