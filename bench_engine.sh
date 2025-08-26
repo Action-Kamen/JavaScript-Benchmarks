@@ -2,35 +2,78 @@
 set -euo pipefail
 
 # bench_engine.sh
-# Usage: bench_engine.sh "<engine-name>" "<engine-cmd>" <bench-folder/> [filter]
+# Usage: bench_engine.sh "<engine-name>" "<engine-cmd>" <bench-folder-path> [filter]
 # Example:
-#   ./bench_engine.sh "QuickJS" "./engines/quickjs/build/qjs" kraken-1.1/ ai-astar
+#   ./bench_engine.sh "QuickJS" "./engines/quickjs/build/qjs" /path/to/kraken-1.1 ai-astar
+
+# =============================================================================
+# CONFIGURABLE PATHS - Edit these for your environment
+# =============================================================================
+
+# Base directory (auto-detected, but can be overridden)
+BASE="$(cd "$(dirname "$0")" && pwd)"
+
+# Default benchmark suites directory (can be overridden by full path argument)
+DEFAULT_BENCHMARK_SUITES_DIR="$BASE/benchmark_suites"
+
+# =============================================================================
+# SCRIPT ARGUMENTS AND SETUP
+# =============================================================================
 
 ENGINE_NAME="$1"
 ENGINE_CMD="$2"   # command to run engine, e.g. "/path/to/d8 --jitless" or "./engines/jerry"
-BENCH_FOLDER="$3" # i.e. kraken-1.1/ or sunspider-1.0/ (must include trailing slash)
+BENCH_FOLDER="$3" # can be absolute path or relative to benchmark_suites_dir
 FILTER="${4:-}"
 
-BASE="$(cd "$(dirname "$0")" && pwd)"
 RESULTS_DIR="$BASE/Results/$ENGINE_NAME"
 mkdir -p "$RESULTS_DIR"
 
-# normalize BENCH_FOLDER to have trailing slash and not be empty
-BENCH_FOLDER="${BENCH_FOLDER%/}/"
+# =============================================================================
+# BENCHMARK FOLDER RESOLUTION
+# =============================================================================
 
-# If BENCH_FOLDER is relative, compute absolute bench dir path
+# Determine the actual benchmark directory path
 if [[ "$BENCH_FOLDER" = /* ]]; then
+  # Absolute path provided
   BENCH_DIR="$BENCH_FOLDER"
+  BENCH_FOLDER_NAME="$(basename "$BENCH_DIR")"
 else
-  BENCH_DIR="$BASE/$BENCH_FOLDER"
+  # Relative path - could be with or without trailing slash
+  BENCH_FOLDER_CLEAN="${BENCH_FOLDER%/}"
+  
+  # Try to find in benchmark suites directory
+  if [ -d "$DEFAULT_BENCHMARK_SUITES_DIR/$BENCH_FOLDER_CLEAN" ]; then
+    BENCH_DIR="$DEFAULT_BENCHMARK_SUITES_DIR/$BENCH_FOLDER_CLEAN"
+  elif [ -d "$BASE/$BENCH_FOLDER_CLEAN" ]; then
+    # Fallback: look in base directory (backward compatibility)
+    BENCH_DIR="$BASE/$BENCH_FOLDER_CLEAN"
+  else
+    echo "ERROR: Benchmark folder not found at:"
+    echo "  - $DEFAULT_BENCHMARK_SUITES_DIR/$BENCH_FOLDER_CLEAN"
+    echo "  - $BASE/$BENCH_FOLDER_CLEAN"
+    exit 1
+  fi
+  
+  BENCH_FOLDER_NAME="$BENCH_FOLDER_CLEAN"
 fi
 
-# -------------------------
+# Verify benchmark directory exists
+if [ ! -d "$BENCH_DIR" ]; then
+  echo "ERROR: Benchmark directory not found: $BENCH_DIR"
+  exit 1
+fi
+
+echo "Using benchmark directory: $BENCH_DIR"
+
+# =============================================================================
+# ENGINE EXECUTABLE RESOLUTION
+# =============================================================================
+
 # Resolve engine executable to absolute path when it is a relative path
 # (so we can cd into BENCH_DIR to run tests but still launch the engine binary correctly)
 # We split ENGINE_CMD into an array, resolve the first token if it contains a slash
 # or starts with ./, and then rebuild ENGINE_CMD.
-# -------------------------
+
 read -r -a _cmdarr <<< "$ENGINE_CMD"
 _exe="${_cmdarr[0]}"
 
@@ -58,18 +101,22 @@ _cmdarr[0]="$_exe_resolved"
 # Rebuild ENGINE_CMD preserving flags/args (join with spaces)
 ENGINE_CMD="${_cmdarr[*]}"
 
+# =============================================================================
+# OUTPUT FILE SETUP
+# =============================================================================
+
 # Use stable filenames (no timestamp)
-CSV_PATH="$RESULTS_DIR/${BENCH_FOLDER%/}_results.csv"
-SUMMARY_PATH="$RESULTS_DIR/${BENCH_FOLDER%/}_summary.txt"
+CSV_PATH="$RESULTS_DIR/${BENCH_FOLDER_NAME}_results.csv"
+SUMMARY_PATH="$RESULTS_DIR/${BENCH_FOLDER_NAME}_summary.txt"
 
 # CSV header (overwrite existing file)
 echo 'test,type,wall_time_s,user_time_s,sys_time_s,peak_mem_kb' > "$CSV_PATH"
 
-LIST_PATH="$BENCH_FOLDER/LIST"
-if [ ! -f "$BENCH_FOLDER" ] && [ ! -d "$BENCH_FOLDER" ]; then
-  echo "ERROR: bench folder not found: $BENCH_FOLDER"
-  exit 1
-fi
+LIST_PATH="$BENCH_DIR/LIST"
+
+# =============================================================================
+# UTILITY FUNCTIONS
+# =============================================================================
 
 # helper to execute the engine command safely with a file argument
 _exec_engine_with_file() {
@@ -96,8 +143,8 @@ run_one() {
 
   # compute a "relative" filename for engine when running from bench dir
   local relfile="$file"
-  if [[ "$file" == "$BENCH_FOLDER"* ]]; then
-    relfile="${file#$BENCH_FOLDER}"
+  if [[ "$file" == "$BENCH_DIR"* ]]; then
+    relfile="${file#$BENCH_DIR/}"
   fi
 
   # Run engine with time measurement in subshell with CWD set to BENCH_DIR.
@@ -133,8 +180,8 @@ run_one() {
 # create combined file inside BENCH_DIR so relative requires/loads succeed
 run_kraken_test() {
   local testname="$1"
-  local datafile="${BENCH_FOLDER}${testname}-data.js"
-  local mainfile="${BENCH_FOLDER}${testname}.js"
+  local datafile="$BENCH_DIR/${testname}-data.js"
+  local mainfile="$BENCH_DIR/${testname}.js"
 
   # Check if both files exist
   if [ ! -f "$datafile" ] || [ ! -f "$mainfile" ]; then
@@ -181,17 +228,23 @@ run_kraken_test() {
   rm -f "$combined_file" "$time_out" "$error_out"
 }
 
+# =============================================================================
+# BENCHMARK TYPE DETECTION AND EXECUTION
+# =============================================================================
+
 # Detect benchmark type
 BENCH_TYPE="unknown"
-if [[ "$BENCH_FOLDER" == *"kraken"* ]]; then
+if [[ "$BENCH_FOLDER_NAME" == *"kraken"* ]]; then
   BENCH_TYPE="kraken"
-elif [[ "$BENCH_FOLDER" == *"sunspider"* ]]; then
+elif [[ "$BENCH_FOLDER_NAME" == *"sunspider"* ]]; then
   BENCH_TYPE="sunspider"
-elif [[ "$BENCH_FOLDER" == *"octane"* ]]; then
+elif [[ "$BENCH_FOLDER_NAME" == *"octane"* ]]; then
   BENCH_TYPE="octane"
-elif [[ "$BENCH_FOLDER" == *"v8"* ]]; then
+elif [[ "$BENCH_FOLDER_NAME" == *"v8"* ]]; then
   BENCH_TYPE="v8"
 fi
+
+echo "Detected benchmark type: $BENCH_TYPE"
 
 # ----- special-case handlers for Octane / V8 -----
 if [ "$BENCH_TYPE" = "octane" ]; then
@@ -203,8 +256,8 @@ if [ "$BENCH_TYPE" = "octane" ]; then
     "./build/run_octane"
     "$BASE/run_octane"
     "./run_octane"
-    "$BENCH_FOLDER/build/run_octane"
-    "$BENCH_FOLDER/run_octane"
+    "$BENCH_DIR/build/run_octane"
+    "$BENCH_DIR/run_octane"
   )
 
   RUNNER=""
@@ -272,8 +325,8 @@ if [ "$BENCH_TYPE" = "v8" ]; then
   echo "Detected V8 benchmark folder. Attempting to use Node runner if present..."
 
   V8_RUNNER_CANDIDATES=(
-    "${BENCH_FOLDER%/}/benchmark.js"
-    "${BENCH_FOLDER%/}/tools/benchmark.js"
+    "$BENCH_DIR/benchmark.js"
+    "$BENCH_DIR/tools/benchmark.js"
     "./v8/benchmark.js"
     "./benchmark.js"
   )
@@ -290,7 +343,7 @@ if [ "$BENCH_TYPE" = "v8" ]; then
     echo "Found V8 node runner: $V8_RUNNER"
     echo "Running: node \"$V8_RUNNER\" \"$ENGINE_NAME\" \"$ENGINE_CMD\""
     (
-      cd "${BENCH_FOLDER%/}" || exit 1
+      cd "$BENCH_DIR" || exit 1
       echo "Invoking node runner from $(pwd)"
       node "$V8_RUNNER" "$ENGINE_NAME" "$ENGINE_CMD"
     )
@@ -301,22 +354,29 @@ if [ "$BENCH_TYPE" = "v8" ]; then
   fi
 fi
 
+# =============================================================================
+# GENERIC LIST-DRIVEN BENCHMARK EXECUTION
+# =============================================================================
+
 # ----- generic list-driven behavior for sunspider/kraken/others -----
 if [ -f "$LIST_PATH" ]; then
+  echo "Found LIST file at: $LIST_PATH"
   while IFS= read -r testname || [ -n "$testname" ]; do
     testname="${testname//$'\r'/}"
     [ -z "$testname" ] && continue
 
     if [ -n "$FILTER" ] && [ "$FILTER" != "$testname" ]; then
-      echo "Skipping $testname"
+      echo "Skipping $testname (filtered)"
       continue
     fi
+
+    echo "Running test: $testname"
 
     if [ "$BENCH_TYPE" = "kraken" ]; then
       run_kraken_test "$testname"
     else
-      datafile="${BENCH_FOLDER}${testname}-data.js"
-      mainfile="${BENCH_FOLDER}${testname}.js"
+      datafile="$BENCH_DIR/${testname}-data.js"
+      mainfile="$BENCH_DIR/${testname}.js"
 
       if [ -f "$datafile" ]; then
         run_one "$datafile" "data"
@@ -329,13 +389,18 @@ if [ -f "$LIST_PATH" ]; then
     fi
   done < "$LIST_PATH"
 else
-  if [ -f "${BENCH_FOLDER%/}/combined.js" ]; then
-    echo "No LIST found; running ${BENCH_FOLDER%/}/combined.js"
-    run_one "${BENCH_FOLDER%/}/combined.js" "combined"
+  echo "No LIST file found at: $LIST_PATH"
+  if [ -f "$BENCH_DIR/combined.js" ]; then
+    echo "Running combined.js"
+    run_one "$BENCH_DIR/combined.js" "combined"
   else
-    echo "No LIST file found and no combined.js; nothing to run for $BENCH_FOLDER"
+    echo "No LIST file found and no combined.js; nothing to run for $BENCH_DIR"
   fi
 fi
+
+# =============================================================================
+# RESULTS SUMMARY GENERATION
+# =============================================================================
 
 # Compute totals from CSV
 TOTALS=$(awk -F, '
@@ -359,7 +424,7 @@ read -r TOTAL_WALL TOTAL_USER TOTAL_SYS PEAK_MEM <<< "$TOTALS"
 {
   echo "Engine: $ENGINE_NAME"
   echo "Command: $ENGINE_CMD"
-  echo "Bench folder: $BENCH_FOLDER"
+  echo "Bench folder: $BENCH_DIR"
   echo ""
   echo "CSV: $CSV_PATH"
   echo ""

@@ -7,8 +7,40 @@
 #include <errno.h>
 #include <string.h>
 
-#include "/home/anirudh/Desktop/CS492/benchmarks/engines/quickjs/quickjs.h"
-#include "/home/anirudh/Desktop/CS492/benchmarks/engines/quickjs/quickjs-libc.h"
+// =============================================================================
+// CONFIGURABLE PATHS - Edit these for your environment
+// =============================================================================
+
+// Base benchmarks directory
+#define BASE_BENCHMARKS_DIR "/home/anirudh/Desktop/CS492/benchmarks"
+
+// QuickJS include paths (adjust these based on your QuickJS installation)
+#define QUICKJS_INCLUDE_DIR BASE_BENCHMARKS_DIR "/engines/quickjs"
+
+// Results directory
+#define BASE_RESULTS_DIR BASE_BENCHMARKS_DIR "/Results"
+
+// Benchmark suites directory
+#define BENCHMARK_SUITES_DIR BASE_BENCHMARKS_DIR "/benchmark_suites"
+
+// Octane benchmark directory
+#define OCTANE_DIR BENCHMARK_SUITES_DIR "/octane"
+
+// =============================================================================
+// INCLUDES - Using configured paths
+// =============================================================================
+
+// Construct include paths dynamically
+#define STRINGIFY(x) #x
+#define EXPAND_AND_STRINGIFY(x) STRINGIFY(x)
+
+// Include QuickJS headers
+#include EXPAND_AND_STRINGIFY(/home/anirudh/Desktop/CS492/benchmarks/quickjs/quickjs.h)
+#include EXPAND_AND_STRINGIFY(/home/anirudh/Desktop/CS492/benchmarks/quickjs/quickjs-libc.h)
+
+// =============================================================================
+// GLOBAL VARIABLES AND UTILITIES
+// =============================================================================
 
 static double total_time = 0.0;
 static double total_user = 0.0;
@@ -57,17 +89,30 @@ void write_csv_header(FILE *f) {
     fprintf(f, "test,type,wall_time_s,user_time_s,sys_time_s,js_mem_before_bytes,js_mem_after_bytes,js_mem_change_bytes,rss_peak_kb\n");
 }
 
+// Helper function to construct full script path
+static char* construct_script_path(const char* script_name) {
+    static char path_buffer[1024];
+    snprintf(path_buffer, sizeof(path_buffer), "%s/%s", OCTANE_DIR, script_name);
+    return path_buffer;
+}
+
 void ExecuteAndRecord(JSRuntime *rt, JSContext *ctx, const char *filename, int eval_flags, FILE *csv) {
     static char buf[8 << 20];
-    FILE *file = fopen(filename, "r");
+    
+    // Construct full path to script
+    char* full_path = construct_script_path(filename);
+    
+    FILE *file = fopen(full_path, "r");
     if (!file) {
-        fprintf(stderr, "Cannot open file: %s\n", filename);
+        fprintf(stderr, "Cannot open file: %s\n", full_path);
         return;
     }
+    
     size_t nread = fread(buf, 1, sizeof(buf), file);
     fclose(file);
+    
     if (nread == 0 || nread == sizeof(buf)) {
-        fprintf(stderr, "read error or file too large: %s\n", filename);
+        fprintf(stderr, "read error or file too large: %s\n", full_path);
         return;
     }
     buf[nread] = '\0';
@@ -80,7 +125,7 @@ void ExecuteAndRecord(JSRuntime *rt, JSContext *ctx, const char *filename, int e
     get_cpu_times(&user0, &sys0);
     size_t js_mem_before = get_js_memory_usage(rt);
 
-    printf("Executing %s with flags %d...\n", filename, eval_flags);
+    printf("Executing %s...\n", filename);
     JSValue val = JS_Eval(ctx, buf, nread, filename, eval_flags);
 
     // Check for exceptions immediately after execution
@@ -145,12 +190,17 @@ int main(int argc, char **argv) {
         vm_name = argv[1];
     }
 
-    /* prepare results dir: fixed base per your request */
-    const char *base_results = "/home/anirudh/Desktop/CS492/benchmarks/Results";
-    char vm_dir[512];
-    snprintf(vm_dir, sizeof(vm_dir), "%s/%s", base_results, vm_name);
+    printf("Octane C Runner Configuration:\n");
+    printf("Base benchmarks dir: %s\n", BASE_BENCHMARKS_DIR);
+    printf("Results dir: %s\n", BASE_RESULTS_DIR);
+    printf("Octane dir: %s\n", OCTANE_DIR);
+    printf("VM name: %s\n\n", vm_name);
 
-    if (ensure_dir(base_results) != 0) return 1;
+    /* prepare results dir using configured paths */
+    char vm_dir[512];
+    snprintf(vm_dir, sizeof(vm_dir), "%s/%s", BASE_RESULTS_DIR, vm_name);
+
+    if (ensure_dir(BASE_RESULTS_DIR) != 0) return 1;
     if (ensure_dir(vm_dir) != 0) return 1;
 
     /* Generate timestamp for summary content (not filenames) */
@@ -193,32 +243,33 @@ int main(int argc, char **argv) {
     // Set stack size
     JS_SetMaxStackSize(rt, 0);
 
+    // Script list - now just filenames, paths constructed dynamically
     const char *scripts[] = {
-        "octane/base.js",
-        "octane/richards.js",
-        "octane/deltablue.js",
-        "octane/crypto.js",
-        "octane/raytrace.js",
-        "octane/earley-boyer.js",
-        "octane/regexp.js",
-        "octane/splay.js",
-        "octane/navier-stokes.js",
-        "octane/pdfjs.js",
-        "octane/mandreel.js",
-        "octane/gbemu-part1.js",
-        "octane/gbemu-part2.js",
-        "octane/code-load.js",
-        "octane/box2d.js",
-        "octane/zlib.js",
-        "octane/zlib-data.js",
-        "octane/typescript.js",
-        "octane/typescript-input.js",
-        "octane/typescript-compiler.js"
-        // Commenting out run_octane.js for now to isolate the issue
-        //"run_octane.js"
+        "base.js",
+        "richards.js",
+        "deltablue.js",
+        "crypto.js",
+        "raytrace.js",
+        "earley-boyer.js",
+        "regexp.js",
+        "splay.js",
+        "navier-stokes.js",
+        "pdfjs.js",
+        "mandreel.js",
+        "gbemu-part1.js",
+        "gbemu-part2.js",
+        "code-load.js",
+        "box2d.js",
+        "zlib.js",
+        "zlib-data.js",
+        "typescript.js",
+        "typescript-input.js",
+        "typescript-compiler.js"
     };
 
     size_t n_scripts = sizeof(scripts) / sizeof(scripts[0]);
+    
+    printf("Loading %zu Octane benchmark scripts...\n", n_scripts);
     for (size_t i = 0; i < n_scripts; ++i) {
         const char *s = scripts[i];
         // All benchmark scripts should be loaded as global scripts
@@ -245,11 +296,16 @@ int main(int argc, char **argv) {
     fprintf(summary, "VM: %s\n", vm_name);
     fprintf(summary, "Benchmark: Octane\n");
     fprintf(summary, "Timestamp: %s\n\n", timestr);
-    fprintf(summary, "Total scripts: %zu\n", n_scripts + 1); // +1 for run_octane.js
-    fprintf(summary, "Total wall time (s): %.6f\n", total_time);
-    fprintf(summary, "Total user CPU time (s): %.6f\n", total_user);
-    fprintf(summary, "Total sys CPU time (s): %.6f\n", total_sys);
-    fprintf(summary, "Peak memory usage (KB): %ld\n", peak_mem_kb);
+    fprintf(summary, "Configuration:\n");
+    fprintf(summary, "  Base benchmarks dir: %s\n", BASE_BENCHMARKS_DIR);
+    fprintf(summary, "  Octane dir: %s\n", OCTANE_DIR);
+    fprintf(summary, "  Results dir: %s\n\n", BASE_RESULTS_DIR);
+    fprintf(summary, "Results:\n");
+    fprintf(summary, "  Total scripts: %zu\n", n_scripts + 1); // +1 for run_octane.js
+    fprintf(summary, "  Total wall time (s): %.6f\n", total_time);
+    fprintf(summary, "  Total user CPU time (s): %.6f\n", total_user);
+    fprintf(summary, "  Total sys CPU time (s): %.6f\n", total_sys);
+    fprintf(summary, "  Peak memory usage (KB): %ld\n", peak_mem_kb);
     fclose(summary);
 
     printf("\nWrote CSV: %s\n", csvpath);
