@@ -43,6 +43,29 @@ def detect_run_index_from_name(name: str):
         return int(m2.group(1))
     return None
 
+def bench_from_filename(filename: str):
+    """
+    Extract bench key from filename like:
+      kraken-1.0_results_run1.csv  -> kraken-1.0
+      octane_results.csv           -> octane
+      sunspider-1.0_results.csv    -> sunspider-1.0
+    """
+    m = re.search(r'^(.+?)_results', filename)
+    if m:
+        return m.group(1)
+    # fallback heuristics
+    if 'octane' in filename.lower():
+        return 'octane'
+    if 'sunspider' in filename.lower():
+        return 'sunspider-1.0'
+    if 'kraken' in filename.lower():
+        # try to find version digits close to 'kraken'
+        m2 = re.search(r'(kraken[-_]\d[\d.]*)', filename.lower())
+        if m2:
+            return m2.group(1)
+        return 'kraken'
+    return 'misc'
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--results-root', default='Results', help='Root Results directory')
@@ -66,7 +89,6 @@ def main():
 
     for engine_name, csv_path in csvs:
         engines_seen.add(engine_name)
-        # attempt to infer bench folder from filename or from CSV contents (test entries include bench path)
         filename = os.path.basename(csv_path)
         run_index = detect_run_index_from_name(filename) or 0
 
@@ -77,35 +99,33 @@ def main():
             continue
 
         # If CSV contains 'test' column with bench prefix like "sunspider-1.0/3d-cube.js"
-        tests = df.get('test')
-        if tests is None:
+        if 'test' not in df.columns:
             print("CSV missing 'test' column:", csv_path)
             continue
 
+        # Determine bench prefix fallback from filename
+        filename_bench = bench_from_filename(filename)
+
         for idx, row in df.iterrows():
             test_name = str(row['test']).strip()
+
             # detect bench folder if test_name contains something like "sunspider-1.0/..."
-            bench_folder = "misc"
             if '/' in test_name:
                 parts = test_name.split('/', 1)
-                if re.search(r'\d', parts[0]):  # heuristic: contains a version number
-                    bench_folder = parts[0]
+                bench_folder_candidate = parts[0]
+                # if candidate contains a number (like 1.0) or known bench names, use it
+                if re.search(r'\d', bench_folder_candidate) or bench_folder_candidate.lower() in ('octane','kraken','sunspider','v8'):
+                    bench_folder = bench_folder_candidate
                 else:
-                    # fallback: attempt from file path if available
-                    bench_folder = parts[0]
+                    bench_folder = filename_bench
             else:
-                # If no slash, try to guess from filename (octane csv usually uses "octane/..." in test column)
-                if 'octane' in filename.lower():
-                    bench_folder = 'octane'
-                elif 'sunspider' in filename.lower():
-                    bench_folder = 'sunspider-1.0'
-                elif 'kraken' in filename.lower():
-                    bench_folder = 'kraken'
-                else:
-                    bench_folder = 'misc'
+                # No bench prefix in the 'test' column — use bench extracted from filename
+                bench_folder = filename_bench
 
             # normalize test key to include bench folder prefix so plots are grouped sensibly
-            full_test_key = f"{bench_folder}/{test_name.split('/')[-1]}"
+            # use last path component of test_name as the canonical test label
+            test_label = test_name.split('/')[-1]
+            full_test_key = f"{bench_folder}/{test_label}"
 
             # metric extraction; be robust about column naming
             metric_col = args.metric
@@ -120,6 +140,7 @@ def main():
             except Exception:
                 val = float('nan')
 
+            # store metric
             data[bench_folder][full_test_key][engine_name][run_index] = val
 
     # Now create plots: for each bench_folder -> test -> plot engines' lines
