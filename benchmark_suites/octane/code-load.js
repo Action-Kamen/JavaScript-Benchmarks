@@ -64,6 +64,62 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+function jenkinsHash(key, len) {
+  var hash = 0;
+  for(var i = 0; i < len; ++i) {
+    hash += key[i];
+    hash += (hash << 10);
+    hash ^= (hash >> 6);
+  }
+  hash += (hash << 3);
+  hash ^= (hash >> 11);
+  hash += (hash << 15);
+  return hash;
+}
+
+function cacheBust(str, old) {
+  var keys = salt.toString().split('').map(parseFloat);
+  var hash = Math.abs(jenkinsHash(keys, keys.length));
+  var replacement = old + hash.toString(36);
+  return str.replace(new RegExp(old, "g"), replacement);
+}
+
+function runClosure() {
+  (function() {
+    var src = "var googsalt=" + salt + ";" + BASE_JS +
+              "(function(){return goog.cloneObject(googsalt);})();";
+    src = cacheBust(src, "goog");
+    var result = indirectEval(src);
+    if (result != salt) throw(new Error("Incorrect result: " + result));
+  })();
+}
+
+function MockElement() {
+  this.appendChild = function(a) {};
+  this.createComment = function(a) {};
+  this.createDocumentFragment = function() { return new MockElement(); };
+  this.createElement = function(a) { return new MockElement(); };
+  this.documentElement = this;
+  this.getElementById = function(a) { return 0; };
+  this.getElementsByTagName = function(a) {return [0];};
+  this.insertBefore = function(a, b) {};
+  this.removeChild = function(a) {};
+  this.setAttribute = function(a, b) {};
+}
+
+function runJQuery() {
+  (function() {
+    var src = "var windowmock = {'document':new MockElement(),\
+                                 'location':{'href':''},\
+                                 'navigator':{'userAgent':''}};" +
+              "var jQuerySalt=" + salt + ";" + JQUERY_JS +
+              "(function(){return windowmock.jQuery.grep([jQuerySalt],\
+              function(a,b){return true;})[0];})();";
+    src = cacheBust(src, "jQuery");
+    var result = indirectEval(src);
+    if (result != salt) throw(new Error("Incorrect result: " + result));
+  })();
+}
 
 var CodeLoad = new BenchmarkSuite('CodeLoad', [450000], [
   new Benchmark('CodeLoadClosure',
@@ -1494,59 +1550,3 @@ l:k}f(a).css(c,h)},c,a,arguments.length,null)}}),a.jQuery=a.$=f,typeof define==\
 turn f})})(windowmock);"
 
 // Jenkins hash function.
-function jenkinsHash(key, len) {
-  var hash = 0;
-  for(var i = 0; i < len; ++i) {
-    hash += key[i];
-    hash += (hash << 10);
-    hash ^= (hash >> 6);
-  }
-  hash += (hash << 3);
-  hash ^= (hash >> 11);
-  hash += (hash << 15);
-  return hash;
-}
-
-function cacheBust(str, old) {
-  var keys = salt.toString().split('').map(parseFloat);
-  var hash = Math.abs(jenkinsHash(keys, keys.length));
-  var replacement = old + hash.toString(36);
-  return str.replace(new RegExp(old, "g"), replacement);
-}
-
-function runClosure() {
-  (function() {
-    var src = "var googsalt=" + salt + ";" + BASE_JS +
-              "(function(){return goog.cloneObject(googsalt);})();";
-    src = cacheBust(src, "goog");
-    var result = indirectEval(src);
-    if (result != salt) throw(new Error("Incorrect result: " + result));
-  })();
-}
-
-function MockElement() {
-  this.appendChild = function(a) {};
-  this.createComment = function(a) {};
-  this.createDocumentFragment = function() { return new MockElement(); };
-  this.createElement = function(a) { return new MockElement(); };
-  this.documentElement = this;
-  this.getElementById = function(a) { return 0; };
-  this.getElementsByTagName = function(a) {return [0];};
-  this.insertBefore = function(a, b) {};
-  this.removeChild = function(a) {};
-  this.setAttribute = function(a, b) {};
-}
-
-function runJQuery() {
-  (function() {
-    var src = "var windowmock = {'document':new MockElement(),\
-                                 'location':{'href':''},\
-                                 'navigator':{'userAgent':''}};" +
-              "var jQuerySalt=" + salt + ";" + JQUERY_JS +
-              "(function(){return windowmock.jQuery.grep([jQuerySalt],\
-              function(a,b){return true;})[0];})();";
-    src = cacheBust(src, "jQuery");
-    var result = indirectEval(src);
-    if (result != salt) throw(new Error("Incorrect result: " + result));
-  })();
-}

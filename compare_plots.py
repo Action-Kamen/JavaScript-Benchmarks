@@ -137,7 +137,10 @@ def main():
                         break
             try:
                 val = float(row.get(metric_col, float('nan')))
-            except Exception:
+                # **MODIFICATION**: Treat 0 as an error/missing data, as it's an invalid time.
+                if val == 0:
+                    val = float('nan')
+            except (ValueError, TypeError):
                 val = float('nan')
 
             # store metric
@@ -161,21 +164,24 @@ def main():
                     # find run value; run indices are either r or 0-fallback; accept int keys
                     val = engine_runs.get(r, engine_runs.get(r-1, float('nan')))
                     ys.append(val)
-                ax.plot(xs, ys, marker='o', label=engine_name)
-                plotted += 1
+                
+                # Only plot if there is at least one valid data point
+                if not all(pd.isna(ys)):
+                    ax.plot(xs, ys, marker='o', label=engine_name)
+                    plotted += 1
 
             if plotted == 0:
                 plt.close()
                 continue
 
-            ax.set_title(f"{bench_folder} — {test_key}")
+            ax.set_title(f"{bench_folder} — {test_key.split('/')[-1]}")
             ax.set_xlabel("Run")
             ax.set_ylabel(args.metric)
             ax.set_xticks(xs)
             ax.legend(loc='best', fontsize='small')
             plt.tight_layout()
 
-            outpath = out_bench_dir / f"{sanitize_filename(test_key)}.png"
+            outpath = out_bench_dir / f"{sanitize_filename(test_key.split('/')[-1])}.png"
             plt.savefig(outpath, dpi=150)
             plt.close()
             print("Wrote plot:", outpath)

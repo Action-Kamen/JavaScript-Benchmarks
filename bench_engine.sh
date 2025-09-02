@@ -246,80 +246,9 @@ fi
 
 echo "Detected benchmark type: $BENCH_TYPE"
 
-# ----- special-case handlers for Octane / V8 -----
-if [ "$BENCH_TYPE" = "octane" ]; then
-  echo "Detected Octane benchmark folder."
-
-  # Try to find the run_octane binary (your custom C runner)
-  RUN_OCTANE_CANDIDATES=(
-    "$BASE/build/run_octane"
-    "./build/run_octane"
-    "$BASE/run_octane"
-    "./run_octane"
-    "$BENCH_DIR/build/run_octane"
-    "$BENCH_DIR/run_octane"
-  )
-
-  RUNNER=""
-  for c in "${RUN_OCTANE_CANDIDATES[@]}"; do
-    if [ -x "$c" ]; then
-      RUNNER="$c"
-      break
-    fi
-  done
-
-  if [ -n "$RUNNER" ]; then
-    echo "Found Octane C runner: $RUNNER"
-    echo "Running: $RUNNER \"$ENGINE_NAME\""
-    
-    OLD_PWD="$PWD"
-    cd "$BASE"
-    "$RUNNER" "$ENGINE_NAME"
-    cd "$OLD_PWD"
-    
-    echo ""
-    echo "Octane benchmark completed."
-    
-    OCTANE_CSV="$BASE/Results/$ENGINE_NAME/octane_results.csv"
-    OCTANE_SUMMARY="$BASE/Results/$ENGINE_NAME/octane_summary.txt"
-    
-    CSV_PATH="$OCTANE_CSV"
-    SUMMARY_PATH="$OCTANE_SUMMARY"
-    
-    if [ -f "$CSV_PATH" ]; then
-      TOTALS=$(awk -F, '
-        NR>1 {
-          wall += $3;
-          user += $4;
-          sys  += $5;
-          if ($6+0 > peak_mem+0) peak_mem = $6+0;
-        }
-        END {
-          printf "%.6f %.6f %.6f %d", (wall+0), (user+0), (sys+0), (peak_mem+0);
-        }' "$CSV_PATH" || echo "0.000000 0.000000 0.000000 0")
-        
-      read -r TOTAL_WALL TOTAL_USER TOTAL_SYS PEAK_MEM <<< "$TOTALS"
-      
-      echo ""
-      echo "Wrote CSV: $CSV_PATH"  
-      echo "Wrote summary: $SUMMARY_PATH"
-      echo ""
-      echo "[Summary] Engine: $ENGINE_NAME"
-      echo "Total wall time: ${TOTAL_WALL}s"
-      echo "Total user time: ${TOTAL_USER}s"
-      echo "Total sys time: ${TOTAL_SYS}s"
-      echo "Peak memory: ${PEAK_MEM} KB"
-    else
-      echo "Warning: Expected CSV file not found at $CSV_PATH"
-    fi
-    
-    exit 0
-  else
-    echo "No run_octane binary found. Cannot run Octane benchmark."
-    echo "Please compile the run_octane binary first with: cmake --build build"
-    exit 1
-  fi
-fi
+# ----- special-case handlers for V8 -----
+# NOTE: The special-case handler for Octane has been removed to allow it
+#       to run using the generic list-driven method below.
 
 if [ "$BENCH_TYPE" = "v8" ]; then
   echo "Detected V8 benchmark folder. Attempting to use Node runner if present..."

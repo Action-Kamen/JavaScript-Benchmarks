@@ -29,10 +29,10 @@ PYTHON_PLOT_SCRIPT="$BASE/compare_plots.py"
 # =============================================================================
 
 # Number of benchmark runs
-RUNS=1   # change this to run benchmarks more/fewer times
+RUNS=3   # change this to run benchmarks more/fewer times
 
 # Bench folders to run (must include trailing slash in their names here)
-BENCH_LIST=( "kraken-1.0/" "kraken-1.1/" "sunspider-1.0/" "octane/" )
+BENCH_LIST=( "kraken-1.0" "kraken-1.1" "sunspider-1.0" "standalone" )
 
 # Engines: format "Name:::Command" (use ::: as separator)
 ENGINES=(
